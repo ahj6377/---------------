@@ -18,13 +18,25 @@ import numpy as np
 import time
 import pygame
 
+
+##bgm from https://www.chosic.com/download-audio/24995/
+raw = pyglet.image.load('resource/watertex1-side.png')
+seq = pyglet.image.ImageGrid(raw,1,3)
+vorteximage = Animation.from_image_sequence(seq,0.5,True)
+
 pygame.init()
 
+def Truncate(vector, m): # limits vector
+    magnitude = abs(vector)
+    if magnitude > m:
+        vector *= m / magnitude
+    return vector
 
 
-sound = pygame.mixer.Sound("resource/bensound-anewbeginning.mp3")
-#sound.play()
+sound = pygame.mixer.Sound("resource/Komiku_-_12_-_Bicycle.mp3")
+sound.play(-1)
 atksound = pygame.mixer.Sound("resource/shoot.ogg")
+boomsound = pygame.mixer.Sound("resource/boom.ogg")
 class Actor(cocos.sprite.Sprite):
     def __init__(self, image, x, y):
         super(Actor, self).__init__(image)
@@ -59,11 +71,13 @@ class PlayerCannon(Actor):
         self.shootdirection = [1,0]
         self.atkspeed = 1
         self.damage = 1
-        self.skillpoint = 10
+        self.skillpoint = 0
         self.bomb = 0
         self.shield = 0
         self.bombprice = 3
         self.shieldprice = 3
+        self.exp = 0
+        self.requireexp = 5
 
         
         
@@ -71,13 +85,15 @@ class PlayerCannon(Actor):
     def update(self, elapsed):
         pressed = PlayerCannon.KEYS_PRESSED
         space_pressed = pressed[key.SPACE] == 1
+        shift_pressed = pressed[key.LSHIFT] == 1
         
-
-
+        speedfactor = 5    
+        if(shift_pressed):
+            speedfactor = 1
         x = pressed[key.RIGHT] - pressed[key.LEFT]
         y = pressed[key.UP] - pressed[key.DOWN]
         w = self.width * 0.5
-        movement = eu.Vector2(5*x,5*y)
+        movement = eu.Vector2(speedfactor*x,speedfactor*y)
         newdirection = [x,y]
         angle = 0
         self.shootangle = 0
@@ -105,12 +121,36 @@ class PlayerCannon(Actor):
 
     def collide(self, other):
         return
-        if(type(other) == PlayerShoot):
+        if(type(other) == PlayerShoot or type(other) == Shield or type(other) == blackhole):
             return
-        
+        if(self.shield == 1):
+            self.shield = 0
+            self.parent.S.kill()            
+            other.kill()
+            return
         other.kill()
         self.kill()
         self.parent.respawn_player()
+
+class Shield(Actor):
+    def __init__(self,x,y):
+        super(Shield, self).__init__('resource/shield_Edit.png',x,y)
+        self._set_scale(0.07)
+        self.position = pos = eu.Vector2(x, y)
+        self.cshape = cm.CircleShape(pos,self.width/2)
+
+    def update(self,dt):
+        self.position = self.parent.player.position
+        self.cshape.center = self.position
+
+    def collide(self,other):
+        return
+        '''
+        if(type(other) == PlayerShoot or type(other) == PlayerCannon):
+            return
+        other.kill()
+        self.kill()
+        '''
 
 class GameLayer(cocos.layer.Layer):
     is_event_handler = True
@@ -139,6 +179,8 @@ class GameLayer(cocos.layer.Layer):
                 self.player.shield = 1
                 self.player.skillpoint -= self.player.shieldprice
                 self.player.shieldprice+=1
+                self.S = Shield(self.player.position[0],self.player.position[1])
+                self.add(self.S, z = -1)
             
     
 
@@ -169,36 +211,46 @@ class GameLayer(cocos.layer.Layer):
         self.Blayer = boom
         self.width = w
         self.height = h
-        self.lives = 3
+        self.lives = 0
         self.score = 0
         self.time = 2
         self.level = 1
         self.update_score()
         self.create_player()
-        cell = 1.25 * 50
+        cell = 1.25 * 15
         self.count = 1
         self.Isgathering = False
         self.levelchanged = True
         self.gatheringcount = 0
         self.timer10s = 10
         self.onskillwindow = False
-
+        #self.v = virus(50,50)
+        #self.b = blackhole(400,600)
+        #self.add(self.b)
+        #self.add(self.v)
         self.collman = cm.CollisionManagerGrid(0, w, 0, h, 
                                                cell, cell)
         self.schedule(self.update)
         self.bullets = []
         self.timer = 60
-        #self.add(background('starry-night-sky.jpg'))
-        #self.makestars()
+
 
     def create_player(self):
         self.player = PlayerCannon(630, 1000)
         self.add(self.player)
-        self.hud.update_lives(self.lives)
+        self.hud.update_sp(self.player.skillpoint)
 
     def update_score(self, score=0):
         self.score += score
         self.hud.update_score(self.score)
+
+    def update_exp(self,score):
+        self.player.exp += score
+        if(self.player.exp >= self.player.requireexp):
+            self.player.skillpoint +=1
+            self.player.requireexp +=2
+            self.player.exp -= self.player.requireexp
+
     def update_time(self, dt):
         self.timer -= dt
         self.hud.update_time(self.timer)
@@ -286,6 +338,22 @@ class GameLayer(cocos.layer.Layer):
                 S8.setdirection(self.width/2, self.height/2)
                 S8.canmove = False
                 self.add(S8)
+        
+        elif(self.level == 3):
+            S1 = lv3NPC(self.width/2, self.height -50)
+            S1.setdirection(self.width/2, self.height*3/4)
+            S1.canmove = True
+            self.add(S1)
+            S2 = lv3NPC(self.width/2, 50)
+            S2.setdirection(self.width/2, self.height/4)
+            S2.canmove = True
+            self.add(S2)
+        
+        elif(self.level == 4):
+            #S1 = lv4NPC(self.width/2,self.height/2)
+            S1 = lv4NPC(random.randint(50,self.width-50), random.randint(50,self.height-50))
+            self.add(S1)
+        
 
 
                 
@@ -293,7 +361,7 @@ class GameLayer(cocos.layer.Layer):
 
 
 
-    def update(self, dt):
+    def update(self, dt): 
         
         if(self.key_pressed[key.K] or self.onskillwindow == True):
             self.onskillwindow = True
@@ -311,16 +379,34 @@ class GameLayer(cocos.layer.Layer):
             return
         
         if(self.key_pressed[key.V] and self.player.bomb >0):
-            self.Blayer.explode(self.player.position)
+            boomsound.play()
+            #self.Blayer.explode(self.player.position)
             self.Blayer.boom(self.player.position[0],self.player.position[1])
             for _, node in self.children:
-                if(type(node) != PlayerCannon and type(node) != PlayerShoot):
+                if(type(node) != PlayerCannon and type(node) != PlayerShoot and type(node) != Shield):
 
                     distance = (node.position[0] - self.player.position[0])**2 + (node.position[1] - self.player.position[1])**2
-                    if(distance <=6400):
+                    if(distance <=10000):
                         node.kill()
                 
             self.player.bomb = 0
+
+
+        blackholerandnum = random.randint(0,1000)
+        if(blackholerandnum == 1):
+            b = blackhole(random.randint(50,self.width-50),random.randint(50,self.height-50))
+            self.add(b)
+        
+
+        if(self.level >=3):
+            num = random.randint(1,100)
+            num2 = random.randint(1,10000)
+            if(num == 1):
+                GHOST = ghost(random.randint(50,self.width-50), random.randint(50,self.height-50))
+                self.add(GHOST)
+            if(num2 == 1):
+                v = virus(random.randint(50,self.width-50), random.randint(50,self.height-50))
+                self.add(v)
 
         self.collman.clear()
         for _, node in self.children:
@@ -338,25 +424,13 @@ class GameLayer(cocos.layer.Layer):
         elif(self.timer <=45 and self.Isgathering == True):
             
             for _, node in self.children:
-                if(type(node) != PlayerShoot and type(node) != PlayerCannon):
+                if(type(node) != PlayerShoot and type(node) != PlayerCannon and type(node) != Shield):
                     node.turn()
             self.Isgathering = False
 
         if(self.timer <= 0):
             self.timer = 60
             self.level+=1
-        '''
-        if(self.levelchanged == True):
-            self.timer10s -=dt
-            print(self.timer10s)
-        if(self.timer10s<=0):
-            self.timer10s = 10
-            self.Isgathering = False
-            self.levelchanged = False
-            for _, node in self.children:
-                if(type(node) == NPC or type(node) == lv2NPC):
-                    node.turn()
-        '''
 
         
         self.collide(self.player)
@@ -376,8 +450,11 @@ class GameLayer(cocos.layer.Layer):
         for _, node in self.children:
             
             node.update(dt)
+        self.hud.update_sp(self.player.skillpoint)
 
 
+    def breaksheild(self):
+        self.S.kill()
 
     def collide(self, node):
         if node is not None:
@@ -415,18 +492,68 @@ class NPC(Actor):
     def gathering(self):
 
             if(self.parent.Isgathering == True and self.canmove == False):
-                self.moveto(self.parent.width/2, self.parent.height/2,50)
+                #self.moveto(self.parent.width/2, self.parent.height/2,50)
+                self.movetopoint()
                 self.tremble()
 
     def movetopoint(self):
         if(self.parent.level == 1 or self.parent.level == 2):
             self.moveto(self.parent.width/2, self.parent.height/2,50)
+        elif(self.parent.level == 3):
+            if(self.position[1] >= self.parent.height/2):
+                vecx, vecy = self.parent.width/2 - self.position[0], self.parent.height*3/4 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/2, self.parent.height*3/4,100)
+                self.Rotate(vecx,vecy)
 
+            else:
+                vecx, vecy = self.parent.width/2 - self.position[0], self.parent.height*1/4 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/2, self.parent.height/4,100)
+                self.Rotate(vecx,vecy)
+
+        elif(self.parent.level == 4):
+            if(self.position[0] < self.parent.width / 2 and self.position[1] < self.parent.height / 2):
+                vecx, vecy = self.parent.width/4 - self.position[0], self.parent.height*1/4 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/4, self.parent.height/4,100)
+                self.Rotate(vecx,vecy)
+            elif(self.position[0] > self.parent.width /2 and self.position[1] < self.parent.height/2):
+                vecx, vecy = self.parent.width/4*3 - self.position[0], self.parent.height/4 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/4*3,self.parent.height/4,100)
+                self.Rotate(vecx,vecy)
+            elif(self.position[0] < self.parent.width/2 and self.position[1] > self.parent.height /2):
+                vecx, vecy = self.parent.width/4 - self.position[0], self.parent.height/4*3 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/4, self.parent.height/4*3,100)
+                self.Rotate(vecx,vecy)
+            else:
+                vecx, vecy = self.parent.width/4*3 -  self.position[0], self.parent.height/4*3 - self.position[1]
+                scale = np.linalg.norm([vecx, vecy])
+                vecx = vecx/scale
+                vecy = vecy/scale
+                self.moveto(self.parent.width/4*3, self.parent.height/4*3,100)
+                self.Rotate(vecx,vecy)
+            
     def update(self,elapsed):
         if(self.parent.Isgathering == True):
             self.gathering()
         elif(self.canmove == False):
             self.movetopoint()
+        if(self.parent.timer >= 45 and self.parent.level >= 3):
+            self.movetopoint()
+            return
 
 
         if(self.canmove == True):
@@ -457,7 +584,14 @@ class NPC(Actor):
         dx, dy = 1,0
         p = np.array([x,y])
         dp = np.array([1,0])
-        angle = math.acos(np.dot(p,dp) / (x**2+y**2) / (dx**2+dy**2))
+        val = np.dot(p,dp) / ((x**2+y**2) + 0.000001 )/ ((dx**2+dy**2) + 0.000001)
+        #print(val)
+        if ( val > 1):
+            val = 1
+        elif(val <-1):
+            val = -1
+        #angle = math.acos(np.dot(p,dp) / ((x**2+y**2) + 0.000001 )/ ((dx**2+dy**2) + 0.000001))
+        angle = math.acos(val)
         angle = math.degrees(angle)
         if(y >=0):
             angle = angle * -1
@@ -465,6 +599,9 @@ class NPC(Actor):
         self.do(ac.RotateTo(angle,0.001))
 
 
+
+
+    
 
 class lv2NPC(NPC):
     def __init__(self,x,y):
@@ -482,31 +619,206 @@ class lv2NPC(NPC):
         self.do(ac.RotateBy(1,elapsed))
         super().update(elapsed)
 
+class lv3NPC(NPC):
+    def __init__(self,x,y):
+        super(NPC, self).__init__('resource/frame1.png',x,y)
+        self._set_scale(0.06)
+        self.score = 3
+        self.HP = 4
+        self.canmove = True
+        self.position = pos = eu.Vector2(x,y)
+        self.direction = eu.Vector2(0,1)
+        self.speed = 160
+        self.cshape = cm.CircleShape(pos, self.width/2)
+
+class ghost(NPC):
+    def __init__(self,x,y):
+        super(NPC,self).__init__('resource/ghost.png',x,y)
+        self._set_scale(0.5)
+        self.score = 0
+        self.HP = 100000000000
+        self.canmove = False
+        self.position = pos = eu.Vector2(x,y)
+        self.direction = eu.Vector2(0,0)
+        self.speed = 70
+        self.cshape = cm.CircleShape(pos,self.width/2)
+        self.max_force = 5
+        self.max_velocity = 200
+        self.remainingtime = 0
+        
+    def update(self,dt):
+        self.target = self.parent.player
+        if self.target is None:
+            return
+        targetposition = eu.Vector2(self.target.position[0] , self.target.position[1])
+        distance = targetposition - eu.Vector2(self.x,self.y)
+        steering = distance * self.speed - self.direction
+        steering = Truncate(steering, self.max_force)
+        self.direction = Truncate(self.direction + steering, self.max_velocity)
+        self.Rotate(self.direction[0],self.direction[1])
+        self.move(self.direction*dt)
+        #self.position += self.direction*dt
+        self.remainingtime+=dt
+
+        if(self.remainingtime >=10 ):
+            #self.kill()
+            self.disapear()
+    
+    def disapear(self):
+        self.parent.Blayer.killenemy(self.position[0],self.position[1])
+        self.kill()
+
+class lv4NPC(NPC):
+    def __init__(self,x,y):
+        super(NPC, self).__init__('resource/spaceship.png',x,y)
+        self._set_scale(0.24)
+        self.score = 4
+        self.HP = 40
+        self.canmove = True
+        self.position = pos = eu.Vector2(x,y)
+        self.direction = eu.Vector2(0,1)
+        self.speed = 30
+        self.cshape = cm.CircleShape(pos, self.width/2)
+
+
+class blackhole(NPC):
+    def load_animation(anim = vorteximage):
+        return vorteximage
+
+    def __init__(self,x,y):
+        super(NPC, self).__init__(vorteximage,x,y)
+        self.scale = random.uniform(1.0,3.0)
+        self.remainingtime = random.randint(10,20)
+        self.HP = 100000000000
+        self.position = pos = eu.Vector2(x,y)
+        self.cshape = cm.CircleShape(pos, self.width/2)
+    def update(self,dt):
+        distance = (self.position[0] - self.parent.player.position[0])**2 + (self.position[1] - self.parent.player.position[1]) **2
+        self.remainingtime -= dt
+        #self.scale += 0.0001
+        #self._set_scale(self.scale)
+        if(self.remainingtime <= 0):
+            self.kill()
+        if(distance < self.width**2 * 1.5):
+            
+            self.parent.player.moveto(self.position[0],self.position[1], 10)
+        return
+
+    def turn(self):
+        return
+
+
+class virus(NPC):
+    def __init__(self,x,y):
+        super(NPC, self).__init__('resource/Angryvirus6.png',x,y)
+        self._set_scale(0.08)
+        self.score = 100
+        self.HP = 100
+        self.canmove = False
+        self.position = pos = eu.Vector2(x,y)
+        self.direction = eu.Vector2(0,0)
+        self.speed = 10
+        self.cshape = cm.CircleShape(pos, self.width/2)
+        self.wander_angle = 0
+        self.circle_distance = 50
+        self.circle_radius = 10
+        self.angle_change = math.pi/4
+        self.max_velocity = 50
+        self.delay = 0
+
+    def update(self,dt):
+        
+        circle_center = self.direction.normalized() * self.circle_distance
+        dx = math.cos(self.wander_angle)
+        dy = math.cos(self.wander_angle)
+        displacement = eu.Vector2(dx,dy) * self.circle_radius
+        self.wander_angle += (random.random() - 0.5) * self.angle_change
+        self.direction += circle_center + displacement
+        self.direction = Truncate(self.direction,self.max_velocity)
+        self.move(self.direction*dt)
+        self.delay+=dt
+        if(self.delay >=2):
+            self.shoot(dt)
+            self.delay = 0
+
+
+    def shoot(self,dt):
+        temp = math.sqrt(20000)
+        
+        sh1 = Shoot(self.position[0],self.position[1])
+        sh1.speed = eu.Vector2(200, 0)
+        self.parent.add(sh1)
+        sh2 = Shoot(self.position[0],self.position[1])
+        sh2.speed = eu.Vector2(-200,0)
+        self.parent.add(sh2)
+        sh3 = Shoot(self.position[0],self.position[1])
+        sh3.speed = eu.Vector2(0,200)
+        self.parent.add(sh3)
+        sh4 = Shoot(self.position[0],self.position[1])
+        sh4.speed = eu.Vector2(0,-200)
+        self.parent.add(sh4)
+        sh5 = Shoot(self.position[0],self.position[1])
+        sh5.speed = eu.Vector2(temp,temp)
+        self.parent.add(sh5)
+        sh6 = Shoot(self.position[0],self.position[1])
+        sh6.speed = eu.Vector2(-temp,temp)
+        self.parent.add(sh6)
+        sh7 = Shoot(self.position[0],self.position[1])
+        sh7.speed = eu.Vector2(temp,-temp)
+        self.parent.add(sh7)
+        sh8 = Shoot(self.position[0],self.position[1])
+        sh8.speed = eu.Vector2(-temp,-temp)
+        self.parent.add(sh8)
+
 
 
 class Shoot(Actor):
-    def __init__(self, x, y, img='resource/ball.png'):
+    def __init__(self, x, y, img='resource/ball2.png'):
         super(Shoot, self).__init__(img, x, y)
+        self._set_scale(0.4)
+        self.color = (255,120,0)
         self.speed = eu.Vector2(0, -400)
+        self.remainingtime = 0
 
     def update(self, elapsed):
         self.move(self.speed * elapsed)
+        self.remainingtime += elapsed
+        if(self.remainingtime>=1):
+            self.kill()
+    def collide(self,other):
+        if(type(other) == PlayerCannon and self.parent.player.shield == 0):
+            other.kill()
+        elif(type(other) == PlayerCannon and self.parent.player.shield == 1):
+            self.parent.player.shield = 0
+            self.parent.breaksheild()
+            self.kill() 
+            return 
+
+    def turn(self):
+        return
+
+
+
 
 class PlayerShoot(Shoot):
     INSTANCE = None
 
     def __init__(self, x, y):
-        super(PlayerShoot, self).__init__(x, y, 'resource/ball.png')
+        super(PlayerShoot, self).__init__(x, y, 'resource/bullet4.png')
         self._set_scale(0.5)
         self.speed *= -1
         PlayerShoot.INSTANCE = self
+       # self.color = (128,255,255)
 
     def collide(self, other):
+        if(type(other) == blackhole):
+            return
         if isinstance(other, NPC):
             other.HP -= self.parent.player.damage
             if(other.HP <= 0):
                 self.parent.update_score(other.score)
-                #self.parent.Blayer.killenemy(other.position[0],other.position[1])
+                self.parent.update_exp(other.score)
+                self.parent.Blayer.killenemy(other.position[0],other.position[1])
                 
                 other.kill()          
                 
@@ -567,22 +879,22 @@ class HUD(cocos.layer.Layer):
         w, h = cocos.director.director.get_window_size()
         self.score_text = cocos.text.Label('', font_size=18)
         self.score_text.position = (20, h - 40)
-        self.lives_text = cocos.text.Label('', font_size=18)
-        self.lives_text.position = (w - 100, h - 40)
+        self.sp_text = cocos.text.Label('', font_size=18)
+        self.sp_text.position = (w - 200, h - 40)
         self.timer_text = cocos.text.Label('', font_size=18)
         self.timer_text.position = (w/2, h-40)
         self.level_text = cocos.text.Label('',font_size=24)
         self.level_text.position = (w-140, h - 100)
         self.add(self.score_text)
-        self.add(self.lives_text)
+        self.add(self.sp_text)
         self.add(self.timer_text)
         self.add(self.level_text)
 
     def update_score(self, score):
         self.score_text.element.text = 'Score: %s' % score
 
-    def update_lives(self, lives):
-        self.lives_text.element.text = 'Lives: %s' % lives
+    def update_sp(self, sp):
+        self.sp_text.element.text = 'skillpoints: %s' % sp
 
     def update_time(self,time):
         self.timer_text.element.text = 'time: %ds' % time
@@ -617,13 +929,30 @@ class boomparticlelayer(cocos.layer.Layer):
         self.particles  = ps.Explosion(fallback = False)
         self.particles.position = eu.Vector2(x,y)
         self.add(self.particles)
-        self.particles.do(ac.Delay(0.5) + ac.CallFunc(self.kill))
+        self.particles.do(ac.Delay(0.7) + ac.CallFunc(self.particles.kill))
     def killenemy(self,x,y):
         self.smoke = ps.Smoke(fallback = None)
         self.smoke.position = eu.Vector2(x,y)
         self.add(self.smoke)
-        self.smoke.do(ac.Delay(0.7) + ac.CallFunc(self.kill))
+        self.smoke.do(ac.Delay(1.0) + ac.CallFunc(self.smoke.kill))
+'''
+    def makeshield(self,x,y):
+        self.s = shield(x,y)
+        self.add(self.s,z=-1)
+    def updateshield(self,x,y):
+        self.s.position = eu.Vector2(x,y)
+    def breakshield(self):
+        self.s.kill()
 
+class shield(cocos.sprite.Sprite):
+    def __init__(self,x,y):
+        super(shield, self).__init__('resource/shield_Edit.png')
+        self._set_scale(0.07)
+        self.position = pos = eu.Vector2(x, y)
+    def update(self,dt):
+        self.position = eu.Vector2(self.parent.player.position[0] , self.parent.player.position[1])
+        #self.cshape.center = self.position
+'''
 
 
 
